@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Video Call App</title>
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial;
+      background: #0f172a;
+      color: white;
+      text-align: center;
+    }
+
+    h1 {
+      padding: 20px;
+    }
+
+    input {
+      padding: 10px;
+      border-radius: 6px;
+      border: none;
+      margin: 10px;
+    }
+
+    button {
+      padding: 10px 20px;
+      background: #22c55e;
+      border: none;
+      border-radius: 6px;
+      color: white;
+      cursor: pointer;
+    }
+
+    #videos {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 10px;
+      padding: 20px;
+    }
+
+    video {
+      width: 100%;
+      background: black;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+
+<body>
+
+<h1>🎥 Video Call</h1>
+
+<input id="room" placeholder="Room ID">
+<button onclick="joinRoom()">Join</button>
+
+<div id="videos"></div>
+
+<script>
+let localStream;
+let peers = {};
+let ws;
+let myId;
+
+async function joinRoom() {
+    const room = document.getElementById("room").value;
+
+    ws = new WebSocket(`wss://${window.location.host}`);
+
+    ws.onopen = async () => {
+        await startCamera();
+
+        ws.send(JSON.stringify({
+            type: "join",
+            room: room
+        }));
+    };
+
+    ws.onmessage = async (msg) => {
+        const data = JSON.parse(msg.data);
+
+        if (data.type === "users") {
+            myId = data.your_id;
+
+            data.users.forEach(async (id) => {
+                if (id !== myId) {
+                    await createOffer(id);
+                }
+            });
+        }
+
+        else if (data.type === "offer") {
+            await handleOffer(data);
+        }
+
+        else if (data.type === "answer") {
+            await peers[data.from].setRemoteDescription(data.answer);
+        }
+
+        else if (data.type === "candidate") {
+            if (peers[data.from]) {
+                await peers[data.from].addIceCandidate(data.candidate);
+            }
+        }
+    };
+}
+
+async function startCamera() {
+    localStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+    });
+
+    const video = document.createElement("video");
+    video.srcObject = localStream;
+    video.autoplay = true;
+    video.muted = true;
+    document.getElementById("videos").appendChild(video);
+}
+
+function createPeer(id) {
+    const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+    });
+
+    localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+    pc.ontrack = (event) => {
+        let video = document.getElementById(id);
+
+        if (!video) {
+            video = document.createElement("video");
+            video.id = id;
+            video.autoplay = true;
+            document.getElementById("videos").appendChild(video);
+        }
+
+        video.srcObject = event.streams[0];
+    };
+
+    pc.onicecandidate = (event) => {
+        if (event.candidate) {
+            ws.send(JSON.stringify({
+                type: "candidate",
+                target: id,
+                candidate: event.candidate
+            }));
+        }
+    };
+
+    peers[id] = pc;
+    return pc;
+}
+
+async function createOffer(id) {
+    const pc = createPeer(id);
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    ws.send(JSON.stringify({
+        type: "offer",
+        target: id,
+        offer: offer
+    }));
+}
+
+async function handleOffer(data) {
+    const pc = createPeer(data.from);
+
+    await pc.setRemoteDescription(data.offer);
+
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    ws.send(JSON.stringify({
+        type: "answer",
+        target: data.from,
+        answer: answer
+    }));
+}
+</script>
+
+</body>
+</html>
