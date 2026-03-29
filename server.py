@@ -3,10 +3,16 @@ import websockets
 import json
 import uuid
 import os
+from http.server import SimpleHTTPRequestHandler
+from socketserver import TCPServer
+import threading
 
 rooms = {}
 
-async def handler(websocket):
+# -----------------------------
+# WEBSOCKET HANDLER
+# -----------------------------
+async def ws_handler(websocket):
     user_id = str(uuid.uuid4())
     room = None
 
@@ -42,12 +48,27 @@ async def handler(websocket):
         if room and user_id in rooms.get(room, {}):
             del rooms[room][user_id]
 
-async def main():
-    port = int(os.environ.get("PORT", 8765))  # ✅ IMPORTANT FOR RENDER
+# -----------------------------
+# HTTP SERVER (SERVE index.html)
+# -----------------------------
+def start_http():
+    port = int(os.environ.get("PORT", 10000))
+    handler = SimpleHTTPRequestHandler
+    with TCPServer(("", port), handler) as httpd:
+        print(f"🌐 HTTP running on port {port}")
+        httpd.serve_forever()
 
-    async with websockets.serve(handler, "0.0.0.0", port):
-        print(f"🚀 Server running on port {port}")
+# -----------------------------
+# WEBSOCKET SERVER
+# -----------------------------
+async def start_ws():
+    async with websockets.serve(ws_handler, "0.0.0.0", 8765):
+        print("🔌 WebSocket running on port 8765")
         await asyncio.Future()
 
+# -----------------------------
+# MAIN
+# -----------------------------
 if __name__ == "__main__":
-    asyncio.run(main())
+    threading.Thread(target=start_http).start()
+    asyncio.run(start_ws())
