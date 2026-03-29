@@ -49,7 +49,7 @@ async def ws_handler(websocket):
             del rooms[room][user_id]
 
 # -----------------------------
-# HTTP SERVER (SERVE index.html)
+# HTTP SERVER (SERVE WEBSITE)
 # -----------------------------
 def start_http():
     port = int(os.environ.get("PORT", 10000))
