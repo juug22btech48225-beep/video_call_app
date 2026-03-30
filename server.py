@@ -53,9 +53,9 @@ video {
 
 <body>
 
-<h2>🎥 Video Call App</h2>
+<h2>🎥 Video Call Platform</h2>
 
-<input id="room" placeholder="Room ID">
+<input id="room" placeholder="Enter Room ID">
 <button onclick="joinRoom()">Join</button>
 
 <br><br>
@@ -77,19 +77,25 @@ let myId;
 let micEnabled = true;
 let camEnabled = true;
 
+// JOIN ROOM
 async function joinRoom() {
     const room = document.getElementById("room").value;
 
     localStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            frameRate: { ideal: 15 }
+        },
         audio: {
             echoCancellation: true,
             noiseSuppression: true,
-            autoGainControl: true
+            autoGainControl: true,
+            channelCount: 1
         }
     });
 
-    addVideo(localStream, "me", true); // muted local
+    addVideo(localStream, "me", true); // mute self
 
     socket.emit("join", { room: room });
 
@@ -97,7 +103,9 @@ async function joinRoom() {
         myId = data.your_id;
 
         data.users.forEach(id => {
-            if (id !== myId) createOffer(id);
+            if (id !== myId && !peers[id]) {
+                createOffer(id);
+            }
         });
     });
 
@@ -120,6 +128,7 @@ async function joinRoom() {
     });
 }
 
+// CREATE PEER
 function createPeer(id) {
     const pc = new RTCPeerConnection({
         iceServers: [
@@ -160,6 +169,7 @@ function createPeer(id) {
     return pc;
 }
 
+// ADD VIDEO
 function addVideo(stream, id, muted=false) {
     let video = document.getElementById(id);
 
@@ -169,12 +179,14 @@ function addVideo(stream, id, muted=false) {
         video.autoplay = true;
         video.playsInline = true;
         video.muted = muted;
+        video.controls = false;
         document.getElementById("videos").appendChild(video);
     }
 
     video.srcObject = stream;
 }
 
+// CREATE OFFER
 async function createOffer(id) {
     const pc = createPeer(id);
 
@@ -189,6 +201,7 @@ async function createOffer(id) {
     });
 }
 
+// HANDLE OFFER
 async function handleOffer(data) {
     const pc = createPeer(data.from);
 
@@ -205,13 +218,13 @@ async function handleOffer(data) {
     });
 }
 
-// 🎤 MIC TOGGLE
+// MIC TOGGLE
 function toggleMic() {
     micEnabled = !micEnabled;
     localStream.getAudioTracks()[0].enabled = micEnabled;
 }
 
-// 📷 CAMERA TOGGLE
+// CAMERA TOGGLE
 function toggleCamera() {
     camEnabled = !camEnabled;
     localStream.getVideoTracks()[0].enabled = camEnabled;
