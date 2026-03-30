@@ -1,13 +1,14 @@
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, request
 from flask_socketio import SocketIO, emit, join_room
 import uuid
+import os
 
 app = Flask(__name__)
 
-# ✅ FIX: use threading (NO eventlet)
+# ✅ Threading mode (no eventlet issues)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
-rooms = {}
+rooms = {}  # {room: {user_id: sid}}
 
 HTML_PAGE = """
 <!DOCTYPE html>
@@ -23,8 +24,6 @@ body {
   color:white;
   text-align:center;
 }
-
-h2 { padding:20px; }
 
 input, button {
   padding:10px;
@@ -52,15 +51,19 @@ video {
   background:black;
 }
 </style>
-
 </head>
 
 <body>
 
-<h2>🎥 Flask Video Call</h2>
+<h2>🎥 Video Call App</h2>
 
 <input id="room" placeholder="Room ID">
 <button onclick="joinRoom()">Join</button>
+
+<br><br>
+
+<button onclick="toggleMic()">🎤 Mic</button>
+<button onclick="toggleCamera()">📷 Camera</button>
 
 <div id="videos"></div>
 
@@ -72,6 +75,9 @@ const socket = io();
 let localStream;
 let peers = {};
 let myId;
+
+let micEnabled = true;
+let camEnabled = true;
 
 async function joinRoom() {
     const room = document.getElementById("room").value;
@@ -100,6 +106,16 @@ async function joinRoom() {
         else if (type === "answer") await peers[from]?.setRemoteDescription(data.answer);
         else if (type === "candidate") await peers[from]?.addIceCandidate(data.candidate);
     });
+
+    socket.on("user_left", (id) => {
+        if (peers[id]) {
+            peers[id].close();
+            delete peers[id];
+        }
+
+        const video = document.getElementById(id);
+        if (video) video.remove();
+    });
 }
 
 function createPeer(id) {
@@ -118,13 +134,15 @@ function createPeer(id) {
         pc.addTrack(track, localStream)
     );
 
-    pc.ontrack = e => addVideo(e.streams[0], id);
+    pc.ontrack = (event) => {
+        addVideo(event.streams[0], id);
+    };
 
-    pc.onicecandidate = e => {
-        if (e.candidate) {
+    pc.onicecandidate = (event) => {
+        if (event.candidate) {
             socket.emit("signal", {
                 type: "candidate",
-                candidate: e.candidate,
+                candidate: event.candidate,
                 target: id,
                 from: myId
             });
@@ -136,16 +154,17 @@ function createPeer(id) {
 }
 
 function addVideo(stream, id) {
-    let v = document.getElementById(id);
+    let video = document.getElementById(id);
 
-    if (!v) {
-        v = document.createElement("video");
-        v.id = id;
-        v.autoplay = true;
-        document.getElementById("videos").appendChild(v);
+    if (!video) {
+        video = document.createElement("video");
+        video.id = id;
+        video.autoplay = true;
+        video.playsInline = true;
+        document.getElementById("videos").appendChild(video);
     }
 
-    v.srcObject = stream;
+    video.srcObject = stream;
 }
 
 async function createOffer(id) {
@@ -177,6 +196,18 @@ async function handleOffer(data) {
         from: myId
     });
 }
+
+// 🎤 MIC TOGGLE
+function toggleMic() {
+    micEnabled = !micEnabled;
+    localStream.getAudioTracks()[0].enabled = micEnabled;
+}
+
+// 📷 CAMERA TOGGLE
+function toggleCamera() {
+    camEnabled = !camEnabled;
+    localStream.getVideoTracks()[0].enabled = camEnabled;
+}
 </script>
 
 </body>
@@ -195,19 +226,35 @@ def handle_join(data):
     join_room(room)
 
     if room not in rooms:
-        rooms[room] = []
+        rooms[room] = {}
 
-    rooms[room].append(user_id)
+    rooms[room][user_id] = request.sid
 
     emit("users", {
-        "users": rooms[room],
+        "users": list(rooms[room].keys()),
         "your_id": user_id
     })
 
 @socketio.on("signal")
 def handle_signal(data):
-    emit("signal", data, broadcast=True, include_self=False)
+    target = data.get("target")
+
+    for room in rooms:
+        if target in rooms[room]:
+            sid = rooms[room][target]
+            emit("signal", data, room=sid)
+            break
+
+@socketio.on("disconnect")
+def handle_disconnect():
+    for room in list(rooms.keys()):
+        for user_id in list(rooms[room].keys()):
+            if rooms[room][user_id] == request.sid:
+                del rooms[room][user_id]
+                emit("user_left", user_id, broadcast=True)
+                return
 
 if __name__ == "__main__":
-    print("🚀 Server running at http://localhost:5000")
-    socketio.run(app, host="0.0.0.0", port=5000, allow_unsafe_werkzeug=True)
+    port = int(os.environ.get("PORT", 5000))
+    print(f"🚀 Running on port {port}")
+    socketio.run(app, host="0.0.0.0", port=port, allow_unsafe_werkzeug=True)
