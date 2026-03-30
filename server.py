@@ -12,7 +12,7 @@ HTML_PAGE = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>Video Call</title>
+<title>Video Call Platform</title>
 
 <style>
 body {
@@ -77,15 +77,59 @@ let myId;
 let micEnabled = true;
 let camEnabled = true;
 
+// 🎧 HEADPHONE DETECTION
+async function checkAudioOutput() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+
+    const hasHeadphones = devices.some(d =>
+        d.kind === "audiooutput" &&
+        d.label.toLowerCase().includes("headphone")
+    );
+
+    if (!hasHeadphones) {
+        alert("⚠️ Use headphones for best experience (avoid echo)");
+    }
+}
+
+// 🔊 AUDIO LEVEL MONITOR
+function monitorAudio(stream, id) {
+    const audioContext = new AudioContext();
+    const analyser = audioContext.createAnalyser();
+
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+
+    analyser.fftSize = 512;
+    const data = new Uint8Array(analyser.frequencyBinCount);
+
+    const video = document.getElementById(id);
+
+    function checkVolume() {
+        analyser.getByteFrequencyData(data);
+        let volume = data.reduce((a, b) => a + b) / data.length;
+
+        if (volume > 30) {
+            video.style.border = "4px solid lime";
+        } else {
+            video.style.border = "none";
+        }
+
+        requestAnimationFrame(checkVolume);
+    }
+
+    checkVolume();
+}
+
 // JOIN ROOM
 async function joinRoom() {
     const room = document.getElementById("room").value;
 
+    await checkAudioOutput();
+
     localStream = await navigator.mediaDevices.getUserMedia({
         video: {
             width: { ideal: 640 },
-            height: { ideal: 480 },
-            frameRate: { ideal: 15 }
+            height: { ideal: 480 }
         },
         audio: {
             echoCancellation: true,
@@ -95,7 +139,7 @@ async function joinRoom() {
         }
     });
 
-    addVideo(localStream, "me", true); // mute self
+    addVideo(localStream, "me", true);
 
     socket.emit("join", { room: room });
 
@@ -179,11 +223,12 @@ function addVideo(stream, id, muted=false) {
         video.autoplay = true;
         video.playsInline = true;
         video.muted = muted;
-        video.controls = false;
         document.getElementById("videos").appendChild(video);
     }
 
     video.srcObject = stream;
+
+    monitorAudio(stream, id);
 }
 
 // CREATE OFFER
