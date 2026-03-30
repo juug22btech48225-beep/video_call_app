@@ -12,7 +12,7 @@ HTML_PAGE = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>Video Call Platform</title>
+<title>Video Call</title>
 
 <style>
 body { background:#0f172a; color:white; text-align:center; font-family:Arial; }
@@ -54,36 +54,14 @@ if (!myId) {
     localStorage.setItem("userId", myId);
 }
 
-// 🎧 HEADPHONE CHECK
-async function checkAudioOutput() {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const hasHeadphones = devices.some(d =>
-        d.kind === "audiooutput" &&
-        d.label.toLowerCase().includes("headphone")
-    );
-    if (!hasHeadphones) {
-        alert("⚠️ Use headphones to avoid echo");
+// 🔐 ASK PERMISSION ON LOAD
+window.onload = async () => {
+    try {
+        await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    } catch (e) {
+        alert("Camera & Mic permission required!");
     }
-}
-
-// 🔊 AUDIO LEVEL
-function monitorAudio(stream, id) {
-    const ctx = new AudioContext();
-    const analyser = ctx.createAnalyser();
-    const source = ctx.createMediaStreamSource(stream);
-    source.connect(analyser);
-
-    const data = new Uint8Array(analyser.frequencyBinCount);
-    const video = document.getElementById(id);
-
-    function check() {
-        analyser.getByteFrequencyData(data);
-        let volume = data.reduce((a,b)=>a+b)/data.length;
-        video.style.border = volume > 30 ? "4px solid lime" : "none";
-        requestAnimationFrame(check);
-    }
-    check();
-}
+};
 
 // JOIN ROOM
 async function joinRoom() {
@@ -95,8 +73,7 @@ async function joinRoom() {
 
     const room = document.getElementById("room").value;
 
-    await checkAudioOutput();
-
+    // 🔥 FORCE ONLY MIC DEVICE
     const devices = await navigator.mediaDevices.enumerateDevices();
     const mic = devices.find(d => d.kind === "audioinput");
 
@@ -111,6 +88,7 @@ async function joinRoom() {
         }
     });
 
+    // 🔇 MUTE SELF (IMPORTANT)
     addVideo(localStream, "me", true);
 
     socket.emit("join", {
@@ -144,7 +122,7 @@ async function joinRoom() {
     });
 }
 
-// PEER
+// PEER CONNECTION
 function createPeer(id) {
     const pc = new RTCPeerConnection({
         iceServers: [
@@ -156,7 +134,9 @@ function createPeer(id) {
 
     localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
 
-    pc.ontrack = (e) => addVideo(e.streams[0], id, false);
+    pc.ontrack = (e) => {
+        addVideo(e.streams[0], id, false); // remote audio only
+    };
 
     pc.onicecandidate = (e) => {
         if (e.candidate) {
@@ -173,7 +153,7 @@ function createPeer(id) {
     return pc;
 }
 
-// VIDEO
+// VIDEO ELEMENT
 function addVideo(stream, id, muted=false) {
     let v = document.getElementById(id);
 
@@ -182,12 +162,11 @@ function addVideo(stream, id, muted=false) {
         v.id = id;
         v.autoplay = true;
         v.playsInline = true;
-        v.muted = muted;
+        v.muted = muted; // 🔥 prevents self echo
         document.getElementById("videos").appendChild(v);
     }
 
     v.srcObject = stream;
-    monitorAudio(stream, id);
 }
 
 // OFFER
@@ -220,13 +199,13 @@ async function handleOffer(data) {
     });
 }
 
-// MIC
+// MIC TOGGLE
 function toggleMic() {
     micEnabled = !micEnabled;
     localStream.getAudioTracks()[0].enabled = micEnabled;
 }
 
-// CAMERA
+// CAMERA TOGGLE
 function toggleCamera() {
     camEnabled = !camEnabled;
     localStream.getVideoTracks()[0].enabled = camEnabled;
@@ -251,7 +230,7 @@ def join(data):
     if room not in rooms:
         rooms[room] = {}
 
-    # 🔁 remove old session
+    # 🔁 remove old session if rejoining
     if user_id in rooms[room]:
         old_sid = rooms[room][user_id]
         emit("user_left", user_id, room=old_sid)
