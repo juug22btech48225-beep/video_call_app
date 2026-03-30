@@ -4,11 +4,9 @@ import uuid
 import os
 
 app = Flask(__name__)
-
-# ✅ Threading mode (no eventlet issues)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
-rooms = {}  # {room: {user_id: sid}}
+rooms = {}
 
 HTML_PAGE = """
 <!DOCTYPE html>
@@ -84,10 +82,14 @@ async function joinRoom() {
 
     localStream = await navigator.mediaDevices.getUserMedia({
         video: true,
-        audio: true
+        audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+        }
     });
 
-    addVideo(localStream, "me");
+    addVideo(localStream, "me", true); // muted local
 
     socket.emit("join", { room: room });
 
@@ -126,6 +128,11 @@ function createPeer(id) {
                 urls: "turn:openrelay.metered.ca:80",
                 username: "openrelayproject",
                 credential: "openrelayproject"
+            },
+            {
+                urls: "turn:openrelay.metered.ca:443",
+                username: "openrelayproject",
+                credential: "openrelayproject"
             }
         ]
     });
@@ -135,7 +142,7 @@ function createPeer(id) {
     );
 
     pc.ontrack = (event) => {
-        addVideo(event.streams[0], id);
+        addVideo(event.streams[0], id, false);
     };
 
     pc.onicecandidate = (event) => {
@@ -153,7 +160,7 @@ function createPeer(id) {
     return pc;
 }
 
-function addVideo(stream, id) {
+function addVideo(stream, id, muted=false) {
     let video = document.getElementById(id);
 
     if (!video) {
@@ -161,6 +168,7 @@ function addVideo(stream, id) {
         video.id = id;
         video.autoplay = true;
         video.playsInline = true;
+        video.muted = muted;
         document.getElementById("videos").appendChild(video);
     }
 
