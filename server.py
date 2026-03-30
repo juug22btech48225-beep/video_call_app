@@ -3,7 +3,9 @@ from flask_socketio import SocketIO, emit, join_room
 import uuid
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+
+# ✅ FIX: use threading (NO eventlet)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 rooms = {}
 
@@ -11,17 +13,18 @@ HTML_PAGE = """
 <!DOCTYPE html>
 <html>
 <head>
-<title>Flask Video Call</title>
+<title>Video Call</title>
 
 <style>
 body {
+  margin:0;
+  font-family:Arial;
   background:#0f172a;
   color:white;
   text-align:center;
-  font-family:Arial;
 }
 
-h2 { margin-top:20px; }
+h2 { padding:20px; }
 
 input, button {
   padding:10px;
@@ -54,7 +57,7 @@ video {
 
 <body>
 
-<h2>🎥 Flask Video Call App</h2>
+<h2>🎥 Flask Video Call</h2>
 
 <input id="room" placeholder="Room ID">
 <button onclick="joinRoom()">Join</button>
@@ -82,7 +85,7 @@ async function joinRoom() {
 
     socket.emit("join", { room: room });
 
-    socket.on("users", async (data) => {
+    socket.on("users", (data) => {
         myId = data.your_id;
 
         data.users.forEach(id => {
@@ -93,9 +96,9 @@ async function joinRoom() {
     socket.on("signal", async (data) => {
         const { from, type } = data;
 
-        if (type === "offer") handleOffer(data);
-        else if (type === "answer") peers[from]?.setRemoteDescription(data.answer);
-        else if (type === "candidate") peers[from]?.addIceCandidate(data.candidate);
+        if (type === "offer") await handleOffer(data);
+        else if (type === "answer") await peers[from]?.setRemoteDescription(data.answer);
+        else if (type === "candidate") await peers[from]?.addIceCandidate(data.candidate);
     });
 }
 
@@ -206,5 +209,5 @@ def handle_signal(data):
     emit("signal", data, broadcast=True, include_self=False)
 
 if __name__ == "__main__":
-    print("🚀 Server starting at http://localhost:5000")
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
+    print("🚀 Server running at http://localhost:5000")
+    socketio.run(app, host="0.0.0.0", port=5000)
